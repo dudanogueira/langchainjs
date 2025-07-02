@@ -1,23 +1,43 @@
 /* eslint-disable no-process-env */
 import { test, expect } from "@jest/globals";
-import weaviate, { Filters } from "weaviate-client";
+import weaviate, { Filters, WeaviateClient } from "weaviate-client";
 import { OpenAIEmbeddings } from "@langchain/openai";
 import { Document } from "@langchain/core/documents";
 import { WeaviateStore } from "@langchain/weaviate";
 
+// get one client for all tests
+async function getWeaviateClient() {
+  if (process.env.WEAVIATE_CLOUD_URL && process.env.WEAVIATE_CLOUD_API_KEY) {
+    const client: WeaviateClient = await weaviate.connectToWeaviateCloud(
+      process.env.WEAVIATE_CLOUD_URL, // Replace with your Weaviate Cloud URL
+      {
+        authCredentials: new weaviate.ApiKey(process.env.WEAVIATE_CLOUD_API_KEY), // Replace with your Weaviate Cloud API key
+      }
+    );
+    return client;
+  } else {
+    const client = await weaviate.connectToCustom(
+    {
+        httpHost: process.env.WEAVIATE_HTTP_URL || "localhost",  // URL only, no http prefix
+        httpPort: process.env.WEAVIATE_HTTP_PORT ? parseInt(process.env.WEAVIATE_HTTP_PORT, 10) : 8080,
+        httpSecure: process.env.WEAVIATE_HTTP_SECURE ? process.env.WEAVIATE_HTTP_SECURE === "true" : false, 
+        grpcHost: process.env.WEAVIATE_GPC_URL || "localhost", // URL only, no http prefix
+        grpcPort: process.env.WEAVIATE_GPC_PORT ? parseInt(process.env.WEAVIATE_GPC_PORT, 10) : 50051, 
+        grpcSecure: process.env.WEAVIATE_GPC_SECURE ? process.env.WEAVIATE_GPC_SECURE === "true" : false, 
+        authCredentials: process.env.WEAVIATE_API_KEY ? new weaviate.ApiKey(process.env.WEAVIATE_API_KEY): undefined,
+      })
+      return client
+  }
+}
+
+type DocumentWithoutId = Omit<Document, 'id'>;
+async function removeIds(results: Document[]): Promise<DocumentWithoutId[]> {
+  return results.map(({ id, ...rest }) => rest);
+}
+
 test("WeaviateStore", async () => {
-  // Something wrong with the weaviate-client types, so we need to disable
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const client = (weaviate as any).client({
-    scheme:
-      process.env.WEAVIATE_SCHEME ||
-      (process.env.WEAVIATE_HOST ? "https" : "http"),
-    host: process.env.WEAVIATE_HOST || "localhost:8080",
-    apiKey: process.env.WEAVIATE_API_KEY
-      ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        new (weaviate as any).ApiKey(process.env.WEAVIATE_API_KEY)
-      : undefined,
-  });
+  const client = await getWeaviateClient();
+  await client.collections.delete("Test");
   const weaviateArgs = {
     client,
     indexName: "Test",
@@ -32,17 +52,19 @@ test("WeaviateStore", async () => {
   );
   const collection = client.collections.get(weaviateArgs.indexName);
   const results = await store.similaritySearch("hello world", 1);
-  expect(results).toEqual([
+  
+  expect(await removeIds(results)).toEqual([
     new Document({ pageContent: "hello world", metadata: { foo: "bar" } }),
   ]);
 
+  // TEST FILTERING
   const results2 = await store.similaritySearch(
     "hello world",
     1,
     Filters.and(collection.filter.byProperty("foo").equal("baz"))
   );
 
-  expect(results2).toEqual([
+  expect(await removeIds(results2)).toEqual([
     new Document({ pageContent: "hi there", metadata: { foo: "baz" } }),
   ]);
 
@@ -57,6 +79,7 @@ test("WeaviateStore", async () => {
       },
     },
   });
+  await client.collections.delete("DocumentTest");
   const documentStore = await WeaviateStore.fromDocuments(
     [testDocumentWithObjectMetadata],
     new OpenAIEmbeddings(),
@@ -74,7 +97,8 @@ test("WeaviateStore", async () => {
       collection.filter.byProperty("deep_string").equal("deep string")
     )
   );
-  expect(result3).toEqual([
+  
+  expect(await removeIds(result3)).toEqual([
     new Document({
       pageContent: "this is the deep document world!",
       metadata: {
@@ -85,20 +109,33 @@ test("WeaviateStore", async () => {
   ]);
 });
 
+test("WeaviateStore returning only MetadataKeys", async () => {
+  const client = await getWeaviateClient();
+  await client.collections.delete("TestMetadataKeys");
+  const weaviateArgs = {
+    client,
+    indexName: "TestMetadataKeys",
+    textKey: "text",
+    metadataKeys: ["foo", ],
+  };
+  const store = await WeaviateStore.fromTexts(
+    ["hello world", ],
+    [{ foo: "bar", bar: "foo" }],
+    new OpenAIEmbeddings(),
+    weaviateArgs
+  );
+  const results = await store.similaritySearch("hello world", 1);
+
+  expect(await removeIds(results)).toEqual([
+    new Document({ pageContent: "hello world", metadata: { foo: "bar" } }),
+  ]);
+});
+
 test("WeaviateStore upsert + delete", async () => {
-  // Something wrong with the weaviate-client types, so we need to disable
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const client = (weaviate as any).client({
-    scheme:
-      process.env.WEAVIATE_SCHEME ||
-      (process.env.WEAVIATE_HOST ? "https" : "http"),
-    host: process.env.WEAVIATE_HOST || "localhost:8080",
-    apiKey: process.env.WEAVIATE_API_KEY
-      ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        new (weaviate as any).ApiKey(process.env.WEAVIATE_API_KEY)
-      : undefined,
-  });
+
+  const client = await getWeaviateClient();
   const createdAt = new Date().getTime();
+  await client.collections.delete("DocumentTest");
   const weaviateArgs = {
     client,
     indexName: "DocumentTest",
@@ -135,7 +172,7 @@ test("WeaviateStore upsert + delete", async () => {
         .equal((createdAt + 1).toString())
     )
   );
-  expect(results).toEqual([
+  expect(await removeIds(results)).toEqual([
     new Document({
       pageContent: "hello world",
       metadata: { deletionTest: (createdAt + 1).toString() },
@@ -170,7 +207,7 @@ test("WeaviateStore upsert + delete", async () => {
         .equal((createdAt + 1).toString())
     )
   );
-  expect(results2).toEqual([
+  expect(await removeIds(results2)).toEqual([
     new Document({
       pageContent: "hello world upserted",
       metadata: { deletionTest: (createdAt + 1).toString() },
@@ -192,7 +229,7 @@ test("WeaviateStore upsert + delete", async () => {
         .equal((createdAt + 1).toString())
     )
   );
-  expect(results3).toEqual([
+  expect(await removeIds(results3)).toEqual([
     new Document({
       pageContent: "hello world upserted",
       metadata: { deletionTest: (createdAt + 1).toString() },
@@ -201,17 +238,9 @@ test("WeaviateStore upsert + delete", async () => {
 });
 
 test("WeaviateStore delete with filter", async () => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const client = (weaviate as any).client({
-    scheme:
-      process.env.WEAVIATE_SCHEME ||
-      (process.env.WEAVIATE_HOST ? "https" : "http"),
-    host: process.env.WEAVIATE_HOST || "localhost:8080",
-    apiKey: process.env.WEAVIATE_API_KEY
-      ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        new (weaviate as any).ApiKey(process.env.WEAVIATE_API_KEY)
-      : undefined,
-  });
+
+  const client = await getWeaviateClient();
+  await client.collections.delete("FilterDeletionTest");
   const weaviateArgs = {
     client,
     indexName: "FilterDeletionTest",
@@ -226,7 +255,7 @@ test("WeaviateStore delete with filter", async () => {
   );
   const collection = client.collections.get(weaviateArgs.indexName);
   const results = await store.similaritySearch("hello world", 1);
-  expect(results).toEqual([
+  expect(await removeIds(results)).toEqual([
     new Document({ pageContent: "hello world", metadata: { foo: "bar" } }),
   ]);
   await store.delete({

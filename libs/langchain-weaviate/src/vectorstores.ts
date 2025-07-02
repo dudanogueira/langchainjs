@@ -410,6 +410,8 @@ export class WeaviateStore extends VectorStore {
   ): Promise<[Document, number, number, number[]][]> {
     try {
       const collection = this.client.collections.get(this.indexName);
+      // define query attributes to return
+      const queryAttrs = this.queryAttrs.length > 1 ? this.queryAttrs : undefined;
       let result;
       if (this.tenant) {
         result = await collection
@@ -418,6 +420,7 @@ export class WeaviateStore extends VectorStore {
             filters: filter,
             limit: k,
             returnMetadata: ["distance", "score"],
+            returnProperties: queryAttrs,
           });
       } else {
         result = await collection.query.nearVector(query, {
@@ -425,6 +428,7 @@ export class WeaviateStore extends VectorStore {
           limit: k,
           includeVector: true,
           returnMetadata: ["distance", "score"],
+          returnProperties: queryAttrs,
         });
       }
 
