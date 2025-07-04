@@ -18,35 +18,29 @@ const collectionName = "MyCollection";
 beforeAll(async () => {
   expect(process.env.WEAVIATE_URL).toBeDefined();
   expect(process.env.WEAVIATE_URL!.length).toBeGreaterThan(0);
-  client = await weaviate.connectToWeaviateCloud(process.env.WEAVIATE_URL!, {
-    authCredentials: new weaviate.ApiKey(process.env.WEAVIATE_API_KEY || ""),
-    headers: {
-      "X-OpenAI-Api-Key": process.env.OPENAI_API_KEY || "",
-      "X-Cohere-Api-Key": process.env.COHERE_API_KEY || "",
-    },
-  });
+  if (process.env.WEAVIATE_URL === "local"){
+    client = await weaviate.connectToLocal({
+      headers: {
+        "X-OpenAI-Api-Key": process.env.OPENAI_API_KEY || "",
+        "X-Cohere-Api-Key": process.env.COHERE_API_KEY || "",
+      },
+    });
+  } else {
+    client = await weaviate.connectToWeaviateCloud(process.env.WEAVIATE_URL!, {
+      authCredentials: new weaviate.ApiKey(process.env.WEAVIATE_API_KEY || ""),
+      headers: {
+        "X-OpenAI-Api-Key": process.env.OPENAI_API_KEY || "",
+        "X-Cohere-Api-Key": process.env.COHERE_API_KEY || "",
+      },
+    });
+  }
 });
 
 test("Hybridsearch with limit", async () => {
   const embeddings = new OpenAIEmbeddings();
-  const schema = {
-    name: collectionName,
-    description: "A simple dataset",
-    properties: [
-      {
-        name: "title",
-        dataType: dataType.TEXT,
-      },
-      {
-        name: "foo",
-        dataType: dataType.TEXT,
-      },
-    ],
-    vectorizers: vectorizer.text2VecOpenAI(),
-  };
   const weaviateArgs = {
     client,
-    schema,
+    indexName: "HybridSearchWithLimit",
   };
   try {
     const store = await WeaviateStore.fromTexts(
@@ -73,7 +67,7 @@ test("Hybridsearch with limit", async () => {
       }),
     ]);
   } finally {
-    await client.collections.delete(weaviateArgs.schema.name);
+    await client.collections.delete(weaviateArgs.indexName);
   }
 });
 
@@ -119,7 +113,8 @@ test("Hybridsearch with named vectors", async () => {
       weaviateArgs
     );
 
-    const results = await store.hybridSearch("title", {
+    // how are you in portuguese
+    const results = await store.hybridSearch("como você está?", {
       limit: 1,
       targetVector: ["title"],
     });

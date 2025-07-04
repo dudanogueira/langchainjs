@@ -5,6 +5,7 @@ import { OpenAIEmbeddings } from "@langchain/openai";
 import { Document } from "@langchain/core/documents";
 import * as dotenv from "dotenv";
 import { WeaviateStore } from "../vectorstores.js";
+import { FakeEmbeddings } from "@langchain/core/utils/testing";
 
 dotenv.config();
 let client: WeaviateClient;
@@ -12,13 +13,22 @@ let client: WeaviateClient;
 beforeAll(async () => {
   expect(process.env.WEAVIATE_URL).toBeDefined();
   expect(process.env.WEAVIATE_URL!.length).toBeGreaterThan(0);
-  client = await weaviate.connectToWeaviateCloud(process.env.WEAVIATE_URL!, {
-    authCredentials: new weaviate.ApiKey(process.env.WEAVIATE_API_KEY || ""),
-    headers: {
-      "X-OpenAI-Api-Key": process.env.OPENAI_API_KEY || "",
-      "X-Azure-Api-Key": process.env.AZURE_OPENAI_API_KEY || "",
-    },
-  });
+  if (process.env.WEAVIATE_URL === "local"){
+    client = await weaviate.connectToLocal({
+      headers: {
+        "X-OpenAI-Api-Key": process.env.OPENAI_API_KEY || "",
+        "X-Cohere-Api-Key": process.env.COHERE_API_KEY || "",
+      },
+    });
+  } else {
+    client = await weaviate.connectToWeaviateCloud(process.env.WEAVIATE_URL!, {
+      authCredentials: new weaviate.ApiKey(process.env.WEAVIATE_API_KEY || ""),
+      headers: {
+        "X-OpenAI-Api-Key": process.env.OPENAI_API_KEY || "",
+        "X-Cohere-Api-Key": process.env.COHERE_API_KEY || "",
+      },
+    });
+  }
 });
 
 test("WeaviateStore", async () => {
@@ -252,6 +262,34 @@ test("WeaviateStore with tenant", async () => {
     await client.collections.delete(weaviateArgs.indexName);
   }
 });
+
+test("WeaviateStore with limited metadatakeys", async () => {
+  const weaviateArgs = {
+    client,
+    indexName: "TestaMetadataKeys",
+    textKey: "text",
+    metadataKeys: ["foo"],
+  };
+  const store = await WeaviateStore.fromTexts(
+    ["hello world"],
+    [{ foo: "bar", bar: "bar" }],
+    new FakeEmbeddings(),
+    weaviateArgs
+  );
+  try {
+    const results = await store.similaritySearch("hello world", 1);
+    expect(results).toEqual([
+      new Document({
+        id: expect.any(String) as unknown as string,
+        pageContent: "hello world",
+        metadata: { foo: "bar" },
+      }),
+    ]);
+  } finally {
+    await client.collections.delete(weaviateArgs.indexName);
+  }
+});
+
 
 test("WeaviateStore delete with filter", async () => {
   const weaviateArgs = {
