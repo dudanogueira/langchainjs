@@ -7,7 +7,6 @@ import {
   type FilterValue,
   GenerateOptions,
   GenerativeConfigRuntime,
-  HybridOptions,
   Metadata,
   Vectors,
   WeaviateClient,
@@ -288,18 +287,19 @@ export class WeaviateStore extends VectorStore {
    */
   async hybridSearch(
     query: string,
-    options?: HybridOptions<undefined>
+    options?: BaseHybridOptions<undefined>
   ): Promise<Document[]> {
     const collection = this.client.collections.get(this.indexName);
+    const query_vector = await this.embeddings.embedQuery(query)
+    const options_with_vector = {
+      ...options,
+      vector: query_vector,
+    };
     let result;
     if (this.tenant) {
-      result = await collection.withTenant(this.tenant).query.hybrid(query, {
-        ...(options || {}),
-      });
+      result = await collection.withTenant(this.tenant).query.hybrid(query, options_with_vector);
     } else {
-      result = await collection.query.hybrid(query, {
-        ...(options || {}),
-      });
+      result = await collection.query.hybrid(query, options_with_vector);
     }
     const documents = [];
     for (const data of result.objects) {
@@ -411,6 +411,7 @@ export class WeaviateStore extends VectorStore {
     try {
       const collection = this.client.collections.get(this.indexName);
       // define query attributes to return
+      // if no queryAttrs, show all properties
       const queryAttrs = this.queryAttrs.length > 1 ? this.queryAttrs : undefined;
       let result;
       if (this.tenant) {
