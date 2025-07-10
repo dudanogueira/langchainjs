@@ -18,7 +18,7 @@ const collectionName = "MyCollection";
 beforeAll(async () => {
   expect(process.env.WEAVIATE_URL).toBeDefined();
   expect(process.env.WEAVIATE_URL!.length).toBeGreaterThan(0);
-  if (process.env.WEAVIATE_URL === "local"){
+  if (process.env.WEAVIATE_URL === "local") {
     client = await weaviate.connectToLocal({
       headers: {
         "X-OpenAI-Api-Key": process.env.OPENAI_API_KEY || "",
@@ -34,6 +34,8 @@ beforeAll(async () => {
       },
     });
   }
+  console.log("Connecting to Weaviate at", process.env.WEAVIATE_URL);
+  console.log("Ready?", await client.isReady());
 });
 
 test("Hybridsearch with limit", async () => {
@@ -63,7 +65,7 @@ test("Hybridsearch with limit", async () => {
       new Document({
         id: expect.any(String) as unknown as string,
         pageContent: "hello world",
-        metadata: { foo: "bar", title: undefined },
+        metadata: { foo: "bar", title: undefined, score: expect.any(Number) },
       }),
     ]);
   } finally {
@@ -123,7 +125,7 @@ test("Hybridsearch with named vectors", async () => {
       new Document({
         id: expect.any(String) as unknown as string,
         pageContent: "how are you",
-        metadata: { foo: "qux", title: "another title" },
+        metadata: { foo: "qux", title: "another title", score: expect.any(Number)},
       }),
     ]);
   } finally {
@@ -178,12 +180,49 @@ test("Hybridsearch with rerank", async () => {
       new Document({
         id: expect.any(String) as unknown as string,
         pageContent: "hello world",
-        metadata: { foo: "bar", title: "hello world" },
+        metadata: { foo: "bar", title: "hello world", rerankScore: expect.any(Number), score: expect.any(Number) },
       }),
     ]);
   } finally {
     await client.collections.delete(weaviateArgs.schema.name);
   }
+});
+
+test("HybridSearch providing vector and return metadata", async () => {
+
+  const embeddings = new OpenAIEmbeddings();
+  const weaviateArgs = {
+    client,
+    indexName: "HybridSearchProvidingVector",
+  };
+  try {
+    const store = await WeaviateStore.fromTexts(
+      ["a dog can bark", "what more?", "How many is enough?"],
+      [{ "foo": "bar" }],
+      embeddings,
+      weaviateArgs
+    );
+
+    const results = await store.hybridSearch("domestic dog", {
+      alpha: 0.75,
+      autoLimit: 1,
+      vector: await embeddings.embedQuery("domestic dog"),
+      returnMetadata: ["explainScore", "creationTime"]
+    });
+
+    
+
+    expect(results).toEqual([
+      new Document({
+        id: expect.any(String) as unknown as string,
+        pageContent: "a dog can bark",
+        metadata: { score: 1, foo: "bar", explainScore: expect.any(String), creationTime: expect.any(Date) },
+      }),
+    ]);
+  } finally {
+    await client.collections.delete(weaviateArgs.indexName);
+  }
+
 });
 
 afterAll(async () => {

@@ -1,6 +1,6 @@
 import * as uuid from "uuid";
 import {
-  BaseHybridOptions,
+  HybridOptions,
   CollectionConfigCreate,
   configure,
   type DataObject,
@@ -11,6 +11,8 @@ import {
   Vectors,
   WeaviateClient,
   type WeaviateField,
+  BaseHybridOptions,
+  MetadataKeys,
 } from "weaviate-client";
 import {
   type MaxMarginalRelevanceSearchOptions,
@@ -212,8 +214,7 @@ export class WeaviateStore extends VectorStore {
         response = await collection.data.insertMany(batch);
       }
       console.log(
-        `Successfully imported batch of ${
-          Object.values(response.uuids).length
+        `Successfully imported batch of ${Object.values(response.uuids).length
         } items`
       );
       if (response.hasErrors) {
@@ -287,23 +288,34 @@ export class WeaviateStore extends VectorStore {
    */
   async hybridSearch(
     query: string,
-    options?: BaseHybridOptions<undefined>
+    options?: HybridOptions<undefined>
   ): Promise<Document[]> {
     const collection = this.client.collections.get(this.indexName);
-    const query_vector = await this.embeddings.embedQuery(query)
+    let query_vector: number[] | undefined;
+    if (!options?.vector) {
+      query_vector = await this.embeddings.embedQuery(query)
+    }
+
     const options_with_vector = {
       ...options,
-      vector: query_vector,
+      vector: options?.vector || query_vector,
+      returnMetadata: ["score", ...options?.returnMetadata as MetadataKeys || []] as MetadataKeys
     };
     let result;
     if (this.tenant) {
-      result = await collection.withTenant(this.tenant).query.hybrid(query, options_with_vector);
+      result = await collection.withTenant(this.tenant).query.hybrid(query, {
+        ...options_with_vector
+      });
+
     } else {
-      result = await collection.query.hybrid(query, options_with_vector);
+      result = await collection.query.hybrid(query, {
+        ...options_with_vector
+      });
     }
-    const documents = [];
+    const documents: Document[] = [];
+
     for (const data of result.objects) {
-      const { properties = {} } = data ?? {};
+      const { properties = {}, metadata = {} } = data ?? {};
       const { [this.textKey]: text, ...rest } = properties;
 
       documents.push(
@@ -311,6 +323,7 @@ export class WeaviateStore extends VectorStore {
           pageContent: String(text ?? ""),
           metadata: {
             ...rest,
+            ...metadata
           },
           id: data.uuid,
         })

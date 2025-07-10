@@ -16,7 +16,7 @@ const collectionName = "GenerateCollection";
 beforeAll(async () => {
   expect(process.env.WEAVIATE_URL).toBeDefined();
   expect(process.env.WEAVIATE_URL!.length).toBeGreaterThan(0);
-  if (process.env.WEAVIATE_URL === "local"){
+  if (process.env.WEAVIATE_URL === "local") {
     client = await weaviate.connectToLocal({
       headers: {
         "X-OpenAI-Api-Key": process.env.OPENAI_API_KEY || "",
@@ -32,6 +32,8 @@ beforeAll(async () => {
       },
     });
   }
+  console.log("Connecting to Weaviate at", process.env.WEAVIATE_URL);
+  console.log("Ready?", await client.isReady());
 });
 
 test("Generate with limit", async () => {
