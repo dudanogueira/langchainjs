@@ -214,7 +214,8 @@ export class WeaviateStore extends VectorStore {
         response = await collection.data.insertMany(batch);
       }
       console.log(
-        `Successfully imported batch of ${Object.values(response.uuids).length
+        `Successfully imported batch of ${
+          Object.values(response.uuids).length
         } items`
       );
       if (response.hasErrors) {
@@ -293,23 +294,25 @@ export class WeaviateStore extends VectorStore {
     const collection = this.client.collections.get(this.indexName);
     let query_vector: number[] | undefined;
     if (!options?.vector) {
-      query_vector = await this.embeddings.embedQuery(query)
+      query_vector = await this.embeddings.embedQuery(query);
     }
 
     const options_with_vector = {
       ...options,
       vector: options?.vector || query_vector,
-      returnMetadata: ["score", ...options?.returnMetadata as MetadataKeys || []] as MetadataKeys
+      returnMetadata: [
+        "score",
+        ...((options?.returnMetadata as MetadataKeys) || []),
+      ] as MetadataKeys,
     };
     let result;
     if (this.tenant) {
       result = await collection.withTenant(this.tenant).query.hybrid(query, {
-        ...options_with_vector
+        ...options_with_vector,
       });
-
     } else {
       result = await collection.query.hybrid(query, {
-        ...options_with_vector
+        ...options_with_vector,
       });
     }
     const documents: Document[] = [];
@@ -323,7 +326,7 @@ export class WeaviateStore extends VectorStore {
           pageContent: String(text ?? ""),
           metadata: {
             ...rest,
-            ...metadata
+            ...metadata,
           },
           id: data.uuid,
         })
@@ -425,7 +428,8 @@ export class WeaviateStore extends VectorStore {
       const collection = this.client.collections.get(this.indexName);
       // define query attributes to return
       // if no queryAttrs, show all properties
-      const queryAttrs = this.queryAttrs.length > 1 ? this.queryAttrs : undefined;
+      const queryAttrs =
+        this.queryAttrs.length > 1 ? this.queryAttrs : undefined;
       let result;
       if (this.tenant) {
         result = await collection
